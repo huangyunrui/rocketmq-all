@@ -22,14 +22,23 @@ import org.apache.rocketmq.common.message.Message;
 import org.apache.rocketmq.common.protocol.NamespaceUtil;
 import org.apache.rocketmq.remoting.RPCHook;
 
+/**
+ * 事物消息发送者
+ */
 public class TransactionMQProducer extends DefaultMQProducer {
     private TransactionCheckListener transactionCheckListener;
     private int checkThreadPoolMinSize = 1;
     private int checkThreadPoolMaxSize = 1;
     private int checkRequestHoldMax = 2000;
 
+    /*
+    * 事物状态回查异步执行线程
+    * */
     private ExecutorService executorService;
 
+    /*
+    * 事物监听器
+    * */
     private TransactionListener transactionListener;
 
     public TransactionMQProducer() {
@@ -79,6 +88,13 @@ public class TransactionMQProducer extends DefaultMQProducer {
         return this.defaultMQProducerImpl.sendMessageInTransaction(msg, tranExecuter, arg);
     }
 
+    /**
+     * 发送事物消息
+     * @param msg Transactional message to send.
+     * @param arg Argument used along with local transaction executor.
+     * @return
+     * @throws MQClientException
+     */
     @Override
     public TransactionSendResult sendMessageInTransaction(final Message msg,
         final Object arg) throws MQClientException {

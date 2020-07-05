@@ -28,12 +28,21 @@ import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.remoting.common.RemotingUtil;
 import org.apache.rocketmq.store.SelectMappedBufferResult;
 
+/**
+ * HA master 服务端与客户端HA连接对象封装，与boroker从服务器的网络读写实现类
+ */
 public class HAConnection {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private final HAService haService;
     private final SocketChannel socketChannel;
     private final String clientAddr;
+    /**
+     * HA master网络写实现
+     */
     private WriteSocketService writeSocketService;
+    /**
+     * HA master网络读实现
+     */
     private ReadSocketService readSocketService;
 
     private volatile long slaveRequestOffset = -1;
@@ -93,6 +102,10 @@ public class HAConnection {
             this.setDaemon(true);
         }
 
+
+        /*
+        * 每秒执行一次数据拉取
+        * */
         @Override
         public void run() {
             HAConnection.log.info(this.getServiceName() + " service started");
@@ -100,6 +113,7 @@ public class HAConnection {
             while (!this.isStopped()) {
                 try {
                     this.selector.select(1000);
+                    // 处理从服务器发送得读取请求
                     boolean ok = this.processReadEvent();
                     if (!ok) {
                         HAConnection.log.error("processReadEvent error");
@@ -145,11 +159,16 @@ public class HAConnection {
             return ReadSocketService.class.getSimpleName();
         }
 
+        /**
+         * 处理从服务器ack 消息s
+         * @return
+         */
         private boolean processReadEvent() {
             int readSizeZeroTimes = 0;
 
             if (!this.byteBufferRead.hasRemaining()) {
                 this.byteBufferRead.flip();
+//                this.byteBufferRead.clear();
                 this.processPosition = 0;
             }
 
@@ -190,6 +209,9 @@ public class HAConnection {
         }
     }
 
+    /**
+     * 写数据
+     */
     class WriteSocketService extends ServiceThread {
         private final Selector selector;
         private final SocketChannel socketChannel;
@@ -256,7 +278,7 @@ public class HAConnection {
                             this.byteBufferHeader.putLong(this.nextTransferFromWhere);
                             this.byteBufferHeader.putInt(0);
                             this.byteBufferHeader.flip();
-
+                            // 发送数据包
                             this.lastWriteOver = this.transferData();
                             if (!this.lastWriteOver)
                                 continue;

@@ -1341,6 +1341,16 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         return send(msg, this.defaultMQProducer.getSendMsgTimeout());
     }
 
+    /**
+     * 事物确认
+     * @param sendResult
+     * @param localTransactionState
+     * @param localException
+     * @throws RemotingException
+     * @throws MQBrokerException
+     * @throws InterruptedException
+     * @throws UnknownHostException
+     */
     public void endTransaction(
         final SendResult sendResult,
         final LocalTransactionState localTransactionState,

@@ -40,13 +40,22 @@ import org.apache.rocketmq.remoting.common.RemotingUtil;
 import org.apache.rocketmq.store.CommitLog;
 import org.apache.rocketmq.store.DefaultMessageStore;
 
+/**
+ * HA（主从同步机制）
+ */
 public class HAService {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
     private final AtomicInteger connectionCount = new AtomicInteger(0);
 
+    /*
+    * H
+    * */
     private final List<HAConnection> connectionList = new LinkedList<>();
 
+    /*
+    * HA master 监听客户端连接实现
+    * */
     private final AcceptSocketService acceptSocketService;
 
     private final DefaultMessageStore defaultMessageStore;
@@ -54,8 +63,14 @@ public class HAService {
     private final WaitNotifyObject waitNotifyObject = new WaitNotifyObject();
     private final AtomicLong push2SlaveMaxOffset = new AtomicLong(0);
 
+    /**
+     * 主从同步通知实现类
+     */
     private final GroupTransferService groupTransferService;
 
+    /**
+     * 主从同步客户端
+     */
     private final HAClient haClient;
 
     public HAService(final DefaultMessageStore defaultMessageStore) throws IOException {
@@ -85,6 +100,10 @@ public class HAService {
         return result;
     }
 
+    /**
+     * 更新消息同步到savle偏移量
+     * @param offset
+     */
     public void notifyTransferSome(final long offset) {
         for (long value = this.push2SlaveMaxOffset.get(); offset > value; ) {
             boolean ok = this.push2SlaveMaxOffset.compareAndSet(value, offset);
@@ -105,6 +124,10 @@ public class HAService {
     // this.groupTransferService.notifyTransferSome();
     // }
 
+    /**
+     * 开启主从同步
+     * @throws Exception
+     */
     public void start() throws Exception {
         this.acceptSocketService.beginAccept();
         this.acceptSocketService.start();
@@ -154,6 +177,7 @@ public class HAService {
     }
 
     /**
+     * 监听客户端的连接信息
      * Listens to slave connections to create {@link HAConnection}.
      */
     class AcceptSocketService extends ServiceThread {
@@ -167,7 +191,7 @@ public class HAService {
 
         /**
          * Starts listening to slave connections.
-         *
+         * 打开特定端口进行监听
          * @throws Exception If fails.
          */
         public void beginAccept() throws Exception {
@@ -194,12 +218,13 @@ public class HAService {
         }
 
         /**
+         *
          * {@inheritDoc}
          */
         @Override
         public void run() {
             log.info(this.getServiceName() + " service started");
-
+            // 循环读取选择器，是否有新的连接
             while (!this.isStopped()) {
                 try {
                     this.selector.select(1000);
@@ -215,6 +240,7 @@ public class HAService {
                                         + sc.socket().getRemoteSocketAddress());
 
                                     try {
+                                        // 封装与从服务器得连接信息
                                         HAConnection conn = new HAConnection(HAService.this, sc);
                                         conn.start();
                                         HAService.this.addConnection(conn);
@@ -275,6 +301,9 @@ public class HAService {
             this.requestsRead = tmp;
         }
 
+        /**
+         * 等待从服务器同步数据结果
+         */
         private void doWaitTransfer() {
             synchronized (this.requestsRead) {
                 if (!this.requestsRead.isEmpty()) {
@@ -325,6 +354,9 @@ public class HAService {
         }
     }
 
+    /**
+     * 主从同步savle端
+     */
     class HAClient extends ServiceThread {
         private static final int READ_MAX_BUFFER_SIZE = 1024 * 1024 * 4;
         private final AtomicReference<String> masterAddress = new AtomicReference<>();
@@ -350,6 +382,10 @@ public class HAService {
             }
         }
 
+        /**
+         * 判断是否需要向主服务器发送偏移量信息
+         * @return
+         */
         private boolean isTimeToReportOffset() {
             long interval =
                 HAService.this.defaultMessageStore.getSystemClock().now() - this.lastWriteTimestamp;
@@ -359,6 +395,11 @@ public class HAService {
             return needHeart;
         }
 
+        /**
+         * 上报从服务器最大偏移量
+         * @param maxOffset
+         * @return
+         */
         private boolean reportSlaveMaxOffset(final long maxOffset) {
             this.reportOffset.position(0);
             this.reportOffset.limit(8);
@@ -403,13 +444,19 @@ public class HAService {
             this.byteBufferBackup = tmp;
         }
 
+        /**
+         * 处理master返回信息
+         * @return
+         */
         private boolean processReadEvent() {
             int readSizeZeroTimes = 0;
             while (this.byteBufferRead.hasRemaining()) {
                 try {
+                    // 将通道数据读入到缓冲区中
                     int readSize = this.socketChannel.read(this.byteBufferRead);
                     if (readSize > 0) {
                         readSizeZeroTimes = 0;
+                        //将读取内容追加到消息映射文件中
                         boolean result = this.dispatchReadRequest();
                         if (!result) {
                             log.error("HAClient, dispatchReadRequest error");
@@ -432,6 +479,10 @@ public class HAService {
             return true;
         }
 
+        /**
+         * 追加通道读取得内容，到消息映射文件
+         * @return
+         */
         private boolean dispatchReadRequest() {
             final int msgHeaderSize = 8 + 4; // phyoffset + size
             int readSocketPos = this.byteBufferRead.position();
@@ -495,7 +546,13 @@ public class HAService {
             return result;
         }
 
+        /**
+         * 与主服务器建立连接
+         * @return
+         * @throws ClosedChannelException
+         */
         private boolean connectMaster() throws ClosedChannelException {
+            // 连接不存在建立连接
             if (null == socketChannel) {
                 String addr = this.masterAddress.get();
                 if (addr != null) {
@@ -558,9 +615,9 @@ public class HAService {
                                 this.closeMaster();
                             }
                         }
-
+                        // 选择器
                         this.selector.select(1000);
-
+                        // 读取数据
                         boolean ok = this.processReadEvent();
                         if (!ok) {
                             this.closeMaster();
